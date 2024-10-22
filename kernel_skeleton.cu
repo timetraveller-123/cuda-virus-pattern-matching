@@ -5,8 +5,9 @@
 __device__ __constant__ const int fixedSignatureLength = 10240;
 __device__ __constant__ const int fixedSampleLength = 200000;
 
-__device__ __constant__ const int samplesPerBlock = 1024, signaturesPerBlock = 1;
+__device__ __constant__ const int samplesPerBlock = 8, signaturesPerBlock = 128  ;
 
+__device__ __constant__ const bool columnMajorSignatures = false;
 
 __global__ void matchSequences(const char* d_samples, const char* d_signatures, 
                                const int numSignatures, const int numSamples, int* d_matches, const char* d_samplescores) {
@@ -16,14 +17,6 @@ __global__ void matchSequences(const char* d_samples, const char* d_signatures,
     int sampleIdx = blockIdx.x * blockDim.x + threadIdx.x;        
     int signatureIdx = blockIdx.y * blockDim.y + threadIdx.y;    
 
-    __shared__ char signature[signaturesPerBlock*fixedSignatureLength];
-    if(threadIdx.x == 0){
-        for(int j = 0; j < 10240; j++){
-            signature[j*blockDim.y + threadIdx.y] = d_signatures[signatureIdx*fixedSignatureLength + j];
-        }
-    }
-    
-    __syncthreads();
     if(signatureIdx < numSignatures && sampleIdx < numSamples){
     
         bool matched = false;
@@ -34,8 +27,13 @@ __global__ void matchSequences(const char* d_samples, const char* d_signatures,
             for (int j = 0; j < fixedSignatureLength; j++) {
 
                 char sa = d_samples[sampleIdx*fixedSampleLength + i + j];
-                char si =  signature[j*blockDim.y + threadIdx.y] ;   //  d_signatures[signatureIdx*fixedSignatureLength+j]; //
-
+                char si;
+                if(columnMajorSignatures){
+                    si = d_signatures[j*numSignatures + signatureIdx];
+                }else{
+                    si = d_signatures[signatureIdx*fixedSignatureLength+j];
+                }
+                 
                 bool same = sa == si, san = sa == 'N', sin = si == 'N';
 
                 score += ((int)d_samplescores[sampleIdx*fixedSampleLength + i + j]-33)*(same || sin);
@@ -54,6 +52,7 @@ __global__ void matchSequences(const char* d_samples, const char* d_signatures,
 }
 
 void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klibpp::KSeq>& signatures, std::vector<MatchResult>& matches) {
+    auto start_wall = std::chrono::high_resolution_clock::now();
 
     int numSamples = samples.size();
     int numSignatures = signatures.size();
@@ -70,7 +69,15 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
     }
 
     for (int i = 0; i < numSignatures; i++) {
-        memcpy(h_signatureData.data() + i * fixedSignatureLength, signatures[i].seq.c_str(), signatures[i].seq.size());
+        if(columnMajorSignatures){
+            for(int j = 0; j < signatures[i].seq.size(); j++){
+                h_signatureData[j*numSignatures + i] = signatures[i].seq[j];
+            }
+        }else{
+            memcpy(h_signatureData.data() + i * fixedSignatureLength, signatures[i].seq.c_str(), signatures[i].seq.size());
+
+        }
+
     }
 
     
@@ -91,7 +98,6 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
     cudaMalloc(&d_matches, numSamples * numSignatures * sizeof(int));
     cudaMalloc(&d_sample_scores, numSamples * fixedSampleLength * sizeof(char));
 
-    auto start_wall = std::chrono::high_resolution_clock::now();
     // Copy data to device
     cudaMemcpy(d_samples, h_sampleData.data(), numSamples * fixedSampleLength * sizeof(char), cudaMemcpyHostToDevice);
     cudaMemcpy(d_signatures, h_signatureData.data(), numSignatures * fixedSignatureLength * sizeof(char), cudaMemcpyHostToDevice);
@@ -102,7 +108,7 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
     auto end_wall = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> wall_elapsed_seconds = end_wall - start_wall;
 
-    std::cerr << "(FOR AUTOMATED CHECKING) Total runMatcher time:" << wall_elapsed_seconds.count() << "s" << std::endl;
+    std::cout << "Preprocess time" << wall_elapsed_seconds.count() << "s" << std::endl;
 
 
     
