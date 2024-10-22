@@ -5,9 +5,8 @@
 __device__ __constant__ const int fixedSignatureLength = 10240;
 __device__ __constant__ const int fixedSampleLength = 200000;
 
-__device__ __constant__ const int samplesPerBlock = 8, signaturesPerBlock = 128  ;
+__device__ __constant__ const int samplesPerBlock = 4, signaturesPerBlock = 64;
 
-__device__ __constant__ const bool columnMajorSignatures = false;
 
 __global__ void matchSequences(const char* d_samples, const char* d_signatures, 
                                const int numSignatures, const int numSamples, int* d_matches, const char* d_samplescores) {
@@ -28,11 +27,9 @@ __global__ void matchSequences(const char* d_samples, const char* d_signatures,
 
                 char sa = d_samples[sampleIdx*fixedSampleLength + i + j];
                 char si;
-                if(columnMajorSignatures){
-                    si = d_signatures[j*numSignatures + signatureIdx];
-                }else{
-                    si = d_signatures[signatureIdx*fixedSignatureLength+j];
-                }
+                
+                si = d_signatures[signatureIdx*fixedSignatureLength+j];
+                
                  
                 bool same = sa == si, san = sa == 'N', sin = si == 'N';
 
@@ -52,8 +49,6 @@ __global__ void matchSequences(const char* d_samples, const char* d_signatures,
 }
 
 void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klibpp::KSeq>& signatures, std::vector<MatchResult>& matches) {
-    auto start_wall = std::chrono::high_resolution_clock::now();
-
     int numSamples = samples.size();
     int numSignatures = signatures.size();
 
@@ -69,15 +64,7 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
     }
 
     for (int i = 0; i < numSignatures; i++) {
-        if(columnMajorSignatures){
-            for(int j = 0; j < signatures[i].seq.size(); j++){
-                h_signatureData[j*numSignatures + i] = signatures[i].seq[j];
-            }
-        }else{
-            memcpy(h_signatureData.data() + i * fixedSignatureLength, signatures[i].seq.c_str(), signatures[i].seq.size());
-
-        }
-
+        memcpy(h_signatureData.data() + i * fixedSignatureLength, signatures[i].seq.c_str(), signatures[i].seq.size());
     }
 
     
@@ -105,15 +92,8 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
     cudaMemcpy(d_sample_scores, h_samplescores.data(), numSamples * fixedSampleLength * sizeof(char), cudaMemcpyHostToDevice);
 
 
-    auto end_wall = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> wall_elapsed_seconds = end_wall - start_wall;
-
-    std::cout << "Preprocess time" << wall_elapsed_seconds.count() << "s" << std::endl;
-
-
     
-    
-    dim3 gridSize(2048/samplesPerBlock, 1024/signaturesPerBlock);
+    dim3 gridSize(2200/samplesPerBlock + 1, 1024/signaturesPerBlock);
     dim3 blockSize(samplesPerBlock, signaturesPerBlock);
     matchSequences<<<gridSize, blockSize>>>(d_samples, d_signatures, 
                                                    numSignatures, numSamples,
