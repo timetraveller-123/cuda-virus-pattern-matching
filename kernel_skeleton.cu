@@ -5,7 +5,7 @@
 __device__ __constant__ const int fixedSignatureLength = 10240;
 __device__ __constant__ const int fixedSampleLength = 200000;
 
-__device__ __constant__ const int samplesPerBlock = 1024, signaturesPerBlock = 1;
+__device__ __constant__ const int samplesPerBlock = 8, signaturesPerBlock = 4;
 
 
 __global__ void matchSequences(const char* d_samples, const char* d_signatures, 
@@ -17,7 +17,7 @@ __global__ void matchSequences(const char* d_samples, const char* d_signatures,
     int signatureIdx = blockIdx.y * blockDim.y + threadIdx.y;    
 
     __shared__ char signature[signaturesPerBlock*fixedSignatureLength];
-    if(threadIdx.x == 0){
+    if(threadIdx.x == 0 && signatureIdx < numSignatures){
         for(int j = 0; j < 10240; j++){
             signature[j*blockDim.y + threadIdx.y] = d_signatures[signatureIdx*fixedSignatureLength + j];
         }
@@ -107,7 +107,7 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
 
     
     
-    dim3 gridSize(2048/samplesPerBlock, 1024/signaturesPerBlock);
+    dim3 gridSize(2200/samplesPerBlock + 1, 1024/signaturesPerBlock + 1);
     dim3 blockSize(samplesPerBlock, signaturesPerBlock);
     matchSequences<<<gridSize, blockSize>>>(d_samples, d_signatures, 
                                                    numSignatures, numSamples,
