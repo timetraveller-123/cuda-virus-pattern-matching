@@ -93,7 +93,7 @@ void runMatcher(const std::vector<klibpp::KSeq>& samples, const std::vector<klib
 
 
     
-    dim3 gridSize(2200/samplesPerBlock + 1, 1024/signaturesPerBlock);
+    dim3 gridSize(2200/samplesPerBlock + 1, 1024/signaturesPerBlock + 1);
     dim3 blockSize(samplesPerBlock, signaturesPerBlock);
     matchSequences<<<gridSize, blockSize>>>(d_samples, d_signatures, 
                                                    numSignatures, numSamples,
